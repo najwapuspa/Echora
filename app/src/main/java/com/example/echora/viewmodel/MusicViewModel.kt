@@ -98,6 +98,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val _isAddSongToPlaylistOpen = MutableStateFlow(false)
     val isAddSongToPlaylistOpen: StateFlow<Boolean> = _isAddSongToPlaylistOpen.asStateFlow()
 
+    private val _isCreatePlaylistOpen = MutableStateFlow(false)
+    val isCreatePlaylistOpen: StateFlow<Boolean> = _isCreatePlaylistOpen.asStateFlow()
+
     private val _albums = MutableStateFlow<List<Album>>(emptyList())
     val albums: StateFlow<List<Album>> = _albums.asStateFlow()
 
@@ -305,7 +308,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 durationSeconds = durationSec,
                 genre = "Local",
                 coverRes = R.drawable.echora_placeholder,
-                isFavorite = true,
+                isFavorite = false, // default false as requested
                 localUri = uri.toString()
             )
 
@@ -343,7 +346,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun createPlaylist(name: String, coverRes: Int = R.drawable.echora_placeholder) {
+    fun createPlaylist(name: String, coverRes: Int = R.drawable.album_cover_1) {
         if (name.isBlank()) return
         val newPlaylist = Playlist(
             id = "p_${System.currentTimeMillis()}",
@@ -356,6 +359,37 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             storageManager.savePlaylists(updated)
             updated
         }
+    }
+
+    fun createPlaylistWithSongs(
+        name: String,
+        songIds: List<String>,
+        description: String,
+        isPrivate: Boolean,
+        coverRes: Int
+    ) {
+        if (name.isBlank()) return
+        val newPlaylist = Playlist(
+            id = "p_${System.currentTimeMillis()}",
+            name = name.trim(),
+            songCount = songIds.size,
+            coverRes = coverRes,
+            description = description.trim(),
+            isPrivate = isPrivate
+        )
+        _playlists.update { list ->
+            val updated = list + newPlaylist
+            storageManager.savePlaylists(updated)
+            updated
+        }
+        if (songIds.isNotEmpty()) {
+            val currentMap = _playlistSongMap.value.toMutableMap()
+            currentMap[newPlaylist.id] = songIds
+            _playlistSongMap.value = currentMap
+            storageManager.savePlaylistSongs(newPlaylist.id, songIds)
+        }
+        closeCreatePlaylist()
+        selectPlaylist(newPlaylist) // open the newly created playlist as requested in flow
     }
 
     fun editPlaylist(playlistId: String, newName: String, newCoverRes: Int) {
@@ -483,6 +517,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun closeAddSongToPlaylist() {
         _isAddSongToPlaylistOpen.value = false
         _songForPlaylist.value = null
+    }
+
+    fun openCreatePlaylist() {
+        _isCreatePlaylistOpen.value = true
+    }
+
+    fun closeCreatePlaylist() {
+        _isCreatePlaylistOpen.value = false
     }
 
     fun updateUsername(newName: String) {

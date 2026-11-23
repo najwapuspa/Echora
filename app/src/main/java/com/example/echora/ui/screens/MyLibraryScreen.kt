@@ -46,12 +46,10 @@ fun MyLibraryScreen(
     onSongClick: (Song) -> Unit,
     onFavoriteClick: (String) -> Unit,
     onMoreClick: (Song) -> Unit,
-    onCreatePlaylist: (String) -> Unit,
+    onCreatePlaylistClick: () -> Unit,
     onAddLocalSongClick: () -> Unit
 ) {
     var selectedTab by remember { mutableStateOf(0) }
-    var showCreateDialog by remember { mutableStateOf(false) }
-    var newPlaylistName by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
@@ -84,7 +82,7 @@ fun MyLibraryScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
-                    onClick = { showCreateDialog = true },
+                    onClick = onCreatePlaylistClick,
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
@@ -146,7 +144,7 @@ fun MyLibraryScreen(
                             Text("Belum ada playlist", color = EchoraTextSecondary)
                             Spacer(modifier = Modifier.height(8.dp))
                             Button(
-                                onClick = { showCreateDialog = true },
+                                onClick = onCreatePlaylistClick,
                                 colors = ButtonDefaults.buttonColors(containerColor = EchoraPrimary),
                                 shape = RoundedCornerShape(50)
                             ) {
@@ -252,49 +250,6 @@ fun MyLibraryScreen(
                 }
             }
         }
-    }
-
-    if (showCreateDialog) {
-        AlertDialog(
-            onDismissRequest = { showCreateDialog = false },
-            title = { Text("Create New Playlist", color = Color.White) },
-            text = {
-                OutlinedTextField(
-                    value = newPlaylistName,
-                    onValueChange = { newPlaylistName = it },
-                    placeholder = { Text("Playlist name", color = EchoraTextSecondary) },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = EchoraPrimary,
-                        unfocusedBorderColor = Color.DarkGray,
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (newPlaylistName.isNotBlank()) {
-                            onCreatePlaylist(newPlaylistName)
-                            newPlaylistName = ""
-                            showCreateDialog = false
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = EchoraPrimary),
-                    shape = RoundedCornerShape(50)
-                ) {
-                    Text("Save", color = Color.White)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCreateDialog = false }) {
-                    Text("Cancel", color = EchoraTextSecondary)
-                }
-            },
-            containerColor = EchoraCard
-        )
     }
 }
 

@@ -4,5 +4,7 @@ data class Playlist(
     val id: String,
     val name: String,
     val songCount: Int,
-    val coverRes: Int
+    val coverRes: Int,
+    val description: String = "",
+    val isPrivate: Boolean = false
 )

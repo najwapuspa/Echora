@@ -54,6 +54,7 @@ class MainActivity : ComponentActivity() {
                 val selectedSongForDetail by viewModel.selectedSongForDetail.collectAsState()
                 val isAddSongToPlaylistOpen by viewModel.isAddSongToPlaylistOpen.collectAsState()
                 val songForPlaylist by viewModel.songForPlaylist.collectAsState()
+                val isCreatePlaylistOpen by viewModel.isCreatePlaylistOpen.collectAsState()
 
                 val snackbarHostState = remember { SnackbarHostState() }
 
@@ -80,7 +81,15 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                if (currentScreen == "player") {
+                if (isCreatePlaylistOpen) {
+                    CreatePlaylistScreen(
+                        allSongs = songs,
+                        onBackClick = { viewModel.closeCreatePlaylist() },
+                        onSavePlaylist = { name, songIds, desc, isPrivate, cover ->
+                            viewModel.createPlaylistWithSongs(name, songIds, desc, isPrivate, cover)
+                        }
+                    )
+                } else if (currentScreen == "player") {
                     MusicPlayerScreen(
                         song = currentSong,
                         isPlaying = isPlaying,
@@ -123,7 +132,8 @@ class MainActivity : ComponentActivity() {
                                     songs = songs,
                                     onSongClick = { song -> viewModel.playSong(song, songs) },
                                     onFavoriteClick = { id -> viewModel.toggleFavorite(id) },
-                                    onMoreClick = { song -> viewModel.openSongDetail(song) }
+                                    onMoreClick = { song -> viewModel.openSongDetail(song) },
+                                    onPlayQueue = { queue, idx, shuffle -> viewModel.playQueue(queue, idx, shuffle) }
                                 )
                                 "search" -> SearchScreen(
                                     searchQuery = searchQuery,
@@ -178,7 +188,7 @@ class MainActivity : ComponentActivity() {
                                                     onSongClick = { song -> viewModel.playSong(song, songs) },
                                                     onFavoriteClick = { id -> viewModel.toggleFavorite(id) },
                                                     onMoreClick = { song -> viewModel.openSongDetail(song) },
-                                                    onCreatePlaylist = { name -> viewModel.createPlaylist(name) },
+                                                    onCreatePlaylistClick = { viewModel.openCreatePlaylist() },
                                                     onAddLocalSongClick = { filePickerLauncher.launch(arrayOf("audio/*")) }
                                                 )
                                             }
@@ -208,7 +218,7 @@ class MainActivity : ComponentActivity() {
                                                     onSongClick = { song -> viewModel.playSong(song, songs) },
                                                     onFavoriteClick = { id -> viewModel.toggleFavorite(id) },
                                                     onMoreClick = { song -> viewModel.openSongDetail(song) },
-                                                    onCreatePlaylist = { name -> viewModel.createPlaylist(name) },
+                                                    onCreatePlaylistClick = { viewModel.openCreatePlaylist() },
                                                     onAddLocalSongClick = { filePickerLauncher.launch(arrayOf("audio/*")) }
                                                 )
                                             }
@@ -226,7 +236,7 @@ class MainActivity : ComponentActivity() {
                                                 onSongClick = { song -> viewModel.playSong(song, songs) },
                                                 onFavoriteClick = { id -> viewModel.toggleFavorite(id) },
                                                 onMoreClick = { song -> viewModel.openSongDetail(song) },
-                                                onCreatePlaylist = { name -> viewModel.createPlaylist(name) },
+                                                onCreatePlaylistClick = { viewModel.openCreatePlaylist() },
                                                 onAddLocalSongClick = { filePickerLauncher.launch(arrayOf("audio/*")) }
                                             )
                                         }
