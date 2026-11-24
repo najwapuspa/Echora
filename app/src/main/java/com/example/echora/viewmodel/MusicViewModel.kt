@@ -1,6 +1,7 @@
 package com.example.echora.viewmodel
 
 import android.app.Application
+import android.content.ComponentName
 import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
@@ -8,14 +9,19 @@ import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
 import com.example.echora.R
 import com.example.echora.data.model.Album
 import com.example.echora.data.model.Playlist
 import com.example.echora.data.model.Song
 import com.example.echora.data.storage.MusicStorageManager
+import com.example.echora.service.EchoraMediaService
+import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -68,8 +74,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val _isShuffle = MutableStateFlow(false)
     val isShuffle: StateFlow<Boolean> = _isShuffle.asStateFlow()
 
-    private val _isRepeat = MutableStateFlow(false)
-    val isRepeat: StateFlow<Boolean> = _isRepeat.asStateFlow()
+    private val _repeatMode = MutableStateFlow(Player.REPEAT_MODE_OFF) // 0: OFF, 1: ONE, 2: ALL
+    val repeatMode: StateFlow<Int> = _repeatMode.asStateFlow()
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -80,7 +86,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val _currentScreen = MutableStateFlow("home")
     val currentScreen: StateFlow<String> = _currentScreen.asStateFlow()
 
-    private val _themeMode = MutableStateFlow(storageManager.loadThemeMode()) // "system", "light", "dark"
+    private val _themeMode = MutableStateFlow(storageManager.loadThemeMode())
     val themeMode: StateFlow<String> = _themeMode.asStateFlow()
 
     private val _username = MutableStateFlow(storageManager.loadUsername("Alex Rivera"))
@@ -104,6 +110,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val _albums = MutableStateFlow<List<Album>>(emptyList())
     val albums: StateFlow<List<Album>> = _albums.asStateFlow()
 
+    private var controllerFuture: ListenableFuture<MediaController>? = null
+    private var mediaController: MediaController? = null
+
+    val likedSongs: StateFlow<List<Song>> = MutableStateFlow(emptyList())
+
     private fun updateAlbums() {
         val allSongs = _songs.value
         val saved = _savedAlbumTitles.value
@@ -121,34 +132,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         _albums.value = albumList
     }
 
-    val likedSongs: StateFlow<List<Song>> = MutableStateFlow(emptyList())
-
     private fun updateLikedSongs() {
         (likedSongs as MutableStateFlow).value = _songs.value.filter { it.isFavorite }
-    }
-
-    private val exoPlayer: ExoPlayer = ExoPlayer.Builder(application).build().apply {
-        addListener(object : Player.Listener {
-            override fun onIsPlayingChanged(isPlayingState: Boolean) {
-                _isPlaying.value = isPlayingState
-            }
-
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                if (playbackState == Player.STATE_ENDED) {
-                    if (_isRepeat.value) {
-                        exoPlayer.seekTo(0L)
-                        exoPlayer.play()
-                    } else {
-                        nextSong()
-                    }
-                }
-            }
-
-            override fun onPlayerError(error: PlaybackException) {
-                _errorMessage.value = "File audio tidak dapat diputar: ${error.message}"
-                _isPlaying.value = false
-            }
-        })
     }
 
     private var progressJob: Job? = null
@@ -164,16 +149,60 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         _playlistSongMap.value = map
         updateAlbums()
         updateLikedSongs()
+
+        initMediaController(application)
         startProgressTracker()
+    }
+
+    private fun initMediaController(context: Context) {
+        val sessionToken = SessionToken(context, ComponentName(context, EchoraMediaService::class.java))
+        controllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
+        controllerFuture?.addListener({
+            try {
+                val controller = controllerFuture?.get()
+                mediaController = controller
+                controller?.addListener(object : Player.Listener {
+                    override fun onIsPlayingChanged(isPlayingState: Boolean) {
+                        _isPlaying.value = isPlayingState
+                    }
+
+                    override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                        mediaItem?.let { item ->
+                            val foundSong = _playbackQueue.value.find { it.id == item.mediaId }
+                            if (foundSong != null) {
+                                _currentSong.value = foundSong
+                                _playbackPosition.value = 0f
+                            }
+                        }
+                    }
+
+                    override fun onRepeatModeChanged(repeatModeState: Int) {
+                        _repeatMode.value = repeatModeState
+                    }
+
+                    override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+                        _isShuffle.value = shuffleModeEnabled
+                    }
+
+                    override fun onPlayerError(error: PlaybackException) {
+                        _errorMessage.value = "File audio tidak dapat diputar: ${error.message}"
+                        _isPlaying.value = false
+                    }
+                })
+            } catch (e: Exception) {
+                _errorMessage.value = "Gagal menghubungkan media controller: ${e.localizedMessage}"
+            }
+        }, MoreExecutors.directExecutor())
     }
 
     private fun startProgressTracker() {
         progressJob?.cancel()
         progressJob = viewModelScope.launch {
             while (isActive) {
-                if (exoPlayer.isPlaying) {
-                    val duration = exoPlayer.duration
-                    val position = exoPlayer.currentPosition
+                val controller = mediaController
+                if (controller != null && controller.isPlaying) {
+                    val duration = controller.duration
+                    val position = controller.currentPosition
                     if (duration > 0) {
                         _playbackPosition.value = (position.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
                     }
@@ -183,101 +212,134 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun playSong(song: Song, queue: List<Song>? = null) {
-        if (queue != null) {
-            _playbackQueue.value = queue
+    fun playQueue(songs: List<Song>, startIndex: Int = 0, shuffle: Boolean = false) {
+        val controller = mediaController
+        if (controller == null) {
+            _errorMessage.value = "Media Controller belum terhubung."
+            return
         }
-        _currentSong.value = song
+
+        val playables = songs.filter { !it.localUri.isNullOrBlank() }
+        if (playables.isEmpty()) {
+            _errorMessage.value = "Pilih file MP3 lokal dari HP untuk memutar lagu ini."
+            return
+        }
+
+        _playbackQueue.value = playables
+        _isShuffle.value = shuffle
+        controller.shuffleModeEnabled = shuffle
+
+        val mediaItems = playables.map { song ->
+            val metadata = MediaMetadata.Builder()
+                .setTitle(song.title)
+                .setArtist(song.artist)
+                .setAlbumTitle(song.album)
+                .build()
+
+            MediaItem.Builder()
+                .setMediaId(song.id)
+                .setUri(Uri.parse(song.localUri))
+                .setMediaMetadata(metadata)
+                .build()
+        }
+
+        val index = startIndex.coerceIn(0, playables.size - 1)
+        _currentSong.value = playables[index]
         _playbackPosition.value = 0f
-        _errorMessage.value = null
+
         try {
-            if (!song.localUri.isNullOrBlank()) {
-                val mediaItem = MediaItem.fromUri(Uri.parse(song.localUri))
-                exoPlayer.setMediaItem(mediaItem)
-                exoPlayer.prepare()
-                exoPlayer.play()
-            } else {
-                exoPlayer.stop()
-                _isPlaying.value = false
-                _errorMessage.value = "Pilih file MP3 lokal dari HP untuk memutar lagu ini."
-            }
+            controller.setMediaItems(mediaItems, index, 0L)
+            controller.prepare()
+            controller.play()
         } catch (_: SecurityException) {
             _errorMessage.value = "File audio tidak dapat diakses (izin dicabut)."
             _isPlaying.value = false
         } catch (e: Exception) {
-            _errorMessage.value = "Error memutar lagu: ${e.localizedMessage}"
+            _errorMessage.value = "Gagal memutar antrean: ${e.localizedMessage}"
             _isPlaying.value = false
         }
     }
 
-    fun playQueue(songs: List<Song>, startIndex: Int = 0, shuffle: Boolean = false) {
-        if (songs.isEmpty()) return
-        val listToPlay = if (shuffle) songs.shuffled() else songs
-        _isShuffle.value = shuffle
-        exoPlayer.shuffleModeEnabled = shuffle
-        val index = startIndex.coerceIn(0, listToPlay.size - 1)
-        playSong(listToPlay[index], listToPlay)
+    fun playSong(song: Song, queue: List<Song>? = null) {
+        val targetQueue = queue ?: _playbackQueue.value.ifEmpty { _songs.value }
+        val index = targetQueue.indexOfFirst { it.id == song.id }
+        if (index != -1) {
+            playQueue(targetQueue, index, _isShuffle.value)
+        } else {
+            playQueue(listOf(song) + targetQueue, 0, _isShuffle.value)
+        }
     }
 
     fun togglePlayPause() {
+        val controller = mediaController ?: return
         val current = _currentSong.value
         if (current == null || current.localUri.isNullOrBlank()) {
             _errorMessage.value = "Silakan tambahkan file MP3 lokal terlebih dahulu."
             return
         }
-        if (exoPlayer.isPlaying) {
-            exoPlayer.pause()
+        if (controller.isPlaying) {
+            controller.pause()
         } else {
-            if (exoPlayer.playbackState == Player.STATE_IDLE || exoPlayer.playbackState == Player.STATE_ENDED) {
-                playSong(current)
+            if (controller.playbackState == Player.STATE_IDLE || controller.playbackState == Player.STATE_ENDED) {
+                val queue = _playbackQueue.value.ifEmpty { _songs.value }
+                val index = queue.indexOfFirst { it.id == current.id }.coerceAtLeast(0)
+                playQueue(queue, index, _isShuffle.value)
             } else {
-                exoPlayer.play()
+                controller.play()
             }
         }
     }
 
     fun nextSong() {
-        val current = _currentSong.value ?: return
-        val queue = _playbackQueue.value.ifEmpty { _songs.value }
-        if (queue.isEmpty()) return
-        if (queue.size == 1) {
-            playSong(queue.first(), queue)
-            return
-        }
-        val currentIndex = queue.indexOfFirst { it.id == current.id }
-        val nextIndex = if (_isShuffle.value) {
-            val otherIndices = queue.indices.filter { it != currentIndex }
-            if (otherIndices.isNotEmpty()) otherIndices.random() else 0
+        val controller = mediaController ?: return
+        if (controller.hasNextMediaItem()) {
+            controller.seekToNextMediaItem()
+        } else if (_repeatMode.value == Player.REPEAT_MODE_ALL) {
+            controller.seekTo(0, 0L)
+            controller.play()
         } else {
-            if (currentIndex != -1) (currentIndex + 1) % queue.size else 0
+            controller.pause()
+            controller.seekTo(0, 0L)
+            _playbackPosition.value = 0f
         }
-        playSong(queue[nextIndex], queue)
     }
 
     fun previousSong() {
-        val current = _currentSong.value ?: return
-        val queue = _playbackQueue.value.ifEmpty { _songs.value }
-        if (queue.isEmpty()) return
-        if (queue.size == 1) {
-            playSong(queue.first(), queue)
-            return
+        val controller = mediaController ?: return
+        if (controller.hasPreviousMediaItem()) {
+            controller.seekToPreviousMediaItem()
+        } else if (_repeatMode.value == Player.REPEAT_MODE_ALL) {
+            val count = controller.mediaItemCount
+            if (count > 0) {
+                controller.seekTo(count - 1, 0L)
+                controller.play()
+            }
+        } else {
+            controller.seekTo(0L)
+            _playbackPosition.value = 0f
         }
-        val currentIndex = queue.indexOfFirst { it.id == current.id }
-        val prevIndex = if (currentIndex > 0) currentIndex - 1 else queue.size - 1
-        playSong(queue[prevIndex], queue)
     }
 
     fun seekTo(positionFraction: Float) {
-        val duration = exoPlayer.duration
+        val controller = mediaController ?: return
+        val duration = controller.duration
         if (duration > 0) {
             val targetPosition = (duration * positionFraction).toLong()
-            exoPlayer.seekTo(targetPosition)
+            controller.seekTo(targetPosition)
             _playbackPosition.value = positionFraction.coerceIn(0f, 1f)
         }
     }
 
     fun addLocalSongFromUri(uri: Uri, context: Context) {
         try {
+            val uriString = uri.toString()
+            val existing = _songs.value.find { it.localUri == uriString }
+            if (existing != null) {
+                _errorMessage.value = "Lagu '${existing.title}' sudah ada di Library."
+                playSong(existing)
+                return
+            }
+
             var fileName = "Unknown Song"
             context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
                 val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
@@ -289,8 +351,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             var title = fileName.substringBeforeLast(".")
             var artist = "Local Artist"
             var album = "Local Files"
-            var durationStr = "3:30"
-            var durationSec = 210
+            var durationStr = "Durasi tidak diketahui"
+            var durationSec = 0
 
             val retriever = MediaMetadataRetriever()
             try {
@@ -305,8 +367,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 if (!metaAlbum.isNullOrBlank()) album = metaAlbum
                 if (!metaDuration.isNullOrBlank()) {
                     val ms = metaDuration.toLong()
-                    durationSec = (ms / 1000).toInt()
-                    durationStr = String.format("%d:%02d", durationSec / 60, durationSec % 60)
+                    if (ms > 0) {
+                        durationSec = (ms / 1000).toInt()
+                        durationStr = String.format("%d:%02d", durationSec / 60, durationSec % 60)
+                    }
                 }
             } catch (_: Exception) {
                 // fallback
@@ -314,8 +378,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 retriever.release()
             }
 
+            val stableId = "local_${uriString.hashCode()}"
+
             val newSong = Song(
-                id = "local_${System.currentTimeMillis()}",
+                id = stableId,
                 title = title,
                 artist = artist,
                 album = album,
@@ -324,7 +390,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 genre = "Local",
                 coverRes = R.drawable.echora_placeholder,
                 isFavorite = false,
-                localUri = uri.toString()
+                localUri = uriString
             )
 
             _songs.update {
@@ -589,7 +655,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun shuffleQueue() {
         val nextShuffle = !_isShuffle.value
         _isShuffle.value = nextShuffle
-        exoPlayer.shuffleModeEnabled = nextShuffle
+        mediaController?.shuffleModeEnabled = nextShuffle
     }
 
     fun setSearchQuery(query: String) {
@@ -610,9 +676,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleRepeat() {
-        val nextRepeat = !_isRepeat.value
-        _isRepeat.value = nextRepeat
-        exoPlayer.repeatMode = if (nextRepeat) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+        val controller = mediaController ?: return
+        val nextMode = when (_repeatMode.value) {
+            Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+            Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+            else -> Player.REPEAT_MODE_OFF
+        }
+        _repeatMode.value = nextMode
+        controller.repeatMode = nextMode
     }
 
     fun toggleDarkMode() {
@@ -630,6 +701,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         super.onCleared()
         progressJob?.cancel()
-        exoPlayer.release()
+        controllerFuture?.let { MediaController.releaseFuture(it) }
+        mediaController = null
     }
 }

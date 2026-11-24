@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.media3.common.Player
 import com.example.echora.data.model.Song
 import com.example.echora.ui.theme.EchoraPrimary
 import com.example.echora.ui.theme.EchoraTextSecondary
@@ -30,7 +31,7 @@ fun MusicPlayerScreen(
     isPlaying: Boolean,
     playbackPosition: Float,
     isShuffle: Boolean,
-    isRepeat: Boolean,
+    repeatMode: Int,
     onBackClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
     onNextClick: () -> Unit,
@@ -64,7 +65,7 @@ fun MusicPlayerScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF121212))
+            .background(Color(0xFF101014))
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween
@@ -213,10 +214,12 @@ fun MusicPlayerScreen(
             }
 
             IconButton(onClick = onRepeatClick) {
+                val repeatIcon = if (repeatMode == Player.REPEAT_MODE_ONE) Icons.Default.RepeatOne else Icons.Default.Repeat
+                val repeatTint = if (repeatMode != Player.REPEAT_MODE_OFF) EchoraPrimary else EchoraTextSecondary
                 Icon(
-                    imageVector = Icons.Default.Repeat,
+                    imageVector = repeatIcon,
                     contentDescription = "Repeat",
-                    tint = if (isRepeat) EchoraPrimary else EchoraTextSecondary
+                    tint = repeatTint
                 )
             }
         }

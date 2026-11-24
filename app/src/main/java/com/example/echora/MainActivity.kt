@@ -45,7 +45,7 @@ class MainActivity : ComponentActivity() {
                 val isPlaying by viewModel.isPlaying.collectAsState()
                 val playbackPosition by viewModel.playbackPosition.collectAsState()
                 val isShuffle by viewModel.isShuffle.collectAsState()
-                val isRepeat by viewModel.isRepeat.collectAsState()
+                val repeatMode by viewModel.repeatMode.collectAsState()
                 val searchQuery by viewModel.searchQuery.collectAsState()
                 val selectedCategory by viewModel.selectedCategory.collectAsState()
                 val username by viewModel.username.collectAsState()
@@ -95,7 +95,7 @@ class MainActivity : ComponentActivity() {
                         isPlaying = isPlaying,
                         playbackPosition = playbackPosition,
                         isShuffle = isShuffle,
-                        isRepeat = isRepeat,
+                        repeatMode = repeatMode,
                         onBackClick = { viewModel.navigateTo("home") },
                         onPlayPauseClick = { viewModel.togglePlayPause() },
                         onNextClick = { viewModel.nextSong() },
