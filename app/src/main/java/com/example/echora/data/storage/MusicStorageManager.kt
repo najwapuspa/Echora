@@ -18,12 +18,15 @@ class MusicStorageManager(context: Context) {
     }
 
     fun loadSongs(): List<Song> {
-        val json = prefs.getString("saved_songs", null) ?: return MusicRepository.sampleSongs
+        if (!prefs.contains("saved_songs")) {
+            return MusicRepository.sampleSongs
+        }
+        val json = prefs.getString("saved_songs", null) ?: return emptyList()
         val type = object : TypeToken<List<Song>>() {}.type
         return try {
-            gson.fromJson(json, type) ?: MusicRepository.sampleSongs
+            gson.fromJson(json, type) ?: emptyList()
         } catch (_: Exception) {
-            MusicRepository.sampleSongs
+            emptyList()
         }
     }
 
@@ -33,12 +36,15 @@ class MusicStorageManager(context: Context) {
     }
 
     fun loadPlaylists(): List<Playlist> {
-        val json = prefs.getString("saved_playlists", null) ?: return MusicRepository.samplePlaylists
+        if (!prefs.contains("saved_playlists")) {
+            return MusicRepository.samplePlaylists
+        }
+        val json = prefs.getString("saved_playlists", null) ?: return emptyList()
         val type = object : TypeToken<List<Playlist>>() {}.type
         return try {
-            gson.fromJson(json, type) ?: MusicRepository.samplePlaylists
+            gson.fromJson(json, type) ?: emptyList()
         } catch (_: Exception) {
-            MusicRepository.samplePlaylists
+            emptyList()
         }
     }
 
@@ -55,6 +61,10 @@ class MusicStorageManager(context: Context) {
         } catch (_: Exception) {
             emptyList()
         }
+    }
+
+    fun removePlaylistSongs(playlistId: String) {
+        prefs.edit().remove("playlist_songs_$playlistId").apply()
     }
 
     fun saveSavedAlbums(albumTitles: List<String>) {
@@ -78,5 +88,13 @@ class MusicStorageManager(context: Context) {
 
     fun loadUsername(defaultName: String): String {
         return prefs.getString("saved_username", defaultName) ?: defaultName
+    }
+
+    fun saveThemeMode(mode: String) {
+        prefs.edit().putString("saved_theme_mode", mode).apply()
+    }
+
+    fun loadThemeMode(): String {
+        return prefs.getString("saved_theme_mode", "system") ?: "system"
     }
 }

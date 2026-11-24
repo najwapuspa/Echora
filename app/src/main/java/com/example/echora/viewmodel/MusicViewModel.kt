@@ -80,8 +80,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val _currentScreen = MutableStateFlow("home")
     val currentScreen: StateFlow<String> = _currentScreen.asStateFlow()
 
-    private val _isDarkMode = MutableStateFlow(true)
-    val isDarkMode: StateFlow<Boolean> = _isDarkMode.asStateFlow()
+    private val _themeMode = MutableStateFlow(storageManager.loadThemeMode()) // "system", "light", "dark"
+    val themeMode: StateFlow<String> = _themeMode.asStateFlow()
 
     private val _username = MutableStateFlow(storageManager.loadUsername("Alex Rivera"))
     val username: StateFlow<String> = _username.asStateFlow()
@@ -136,8 +136,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED) {
                     if (_isRepeat.value) {
-                        seekTo(0)
-                        play()
+                        exoPlayer.seekTo(0L)
+                        exoPlayer.play()
                     } else {
                         nextSong()
                     }
@@ -145,7 +145,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                _errorMessage.value = "Gagal memutar audio: ${error.message}"
+                _errorMessage.value = "File audio tidak dapat diputar: ${error.message}"
                 _isPlaying.value = false
             }
         })
@@ -155,9 +155,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         val map = mutableMapOf<String, List<String>>()
-        for (p in _playlists.value) {
-            map[p.id] = storageManager.loadPlaylistSongs(p.id)
+        val updatedPlaylists = _playlists.value.map { p ->
+            val loadedSongIds = storageManager.loadPlaylistSongs(p.id)
+            map[p.id] = loadedSongIds
+            p.copy(songCount = loadedSongIds.size)
         }
+        _playlists.value = updatedPlaylists
         _playlistSongMap.value = map
         updateAlbums()
         updateLikedSongs()
@@ -185,6 +188,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             _playbackQueue.value = queue
         }
         _currentSong.value = song
+        _playbackPosition.value = 0f
         _errorMessage.value = null
         try {
             if (!song.localUri.isNullOrBlank()) {
@@ -197,6 +201,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 _isPlaying.value = false
                 _errorMessage.value = "Pilih file MP3 lokal dari HP untuk memutar lagu ini."
             }
+        } catch (_: SecurityException) {
+            _errorMessage.value = "File audio tidak dapat diakses (izin dicabut)."
+            _isPlaying.value = false
         } catch (e: Exception) {
             _errorMessage.value = "Error memutar lagu: ${e.localizedMessage}"
             _isPlaying.value = false
@@ -207,13 +214,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         if (songs.isEmpty()) return
         val listToPlay = if (shuffle) songs.shuffled() else songs
         _isShuffle.value = shuffle
+        exoPlayer.shuffleModeEnabled = shuffle
         val index = startIndex.coerceIn(0, listToPlay.size - 1)
         playSong(listToPlay[index], listToPlay)
     }
 
     fun togglePlayPause() {
         val current = _currentSong.value
-        if (current?.localUri.isNullOrBlank()) {
+        if (current == null || current.localUri.isNullOrBlank()) {
             _errorMessage.value = "Silakan tambahkan file MP3 lokal terlebih dahulu."
             return
         }
@@ -221,7 +229,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             exoPlayer.pause()
         } else {
             if (exoPlayer.playbackState == Player.STATE_IDLE || exoPlayer.playbackState == Player.STATE_ENDED) {
-                playSong(current!!)
+                playSong(current)
             } else {
                 exoPlayer.play()
             }
@@ -231,25 +239,32 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun nextSong() {
         val current = _currentSong.value ?: return
         val queue = _playbackQueue.value.ifEmpty { _songs.value }
-        val currentIndex = queue.indexOfFirst { it.id == current.id }
-        if (currentIndex != -1 && queue.isNotEmpty()) {
-            val nextIndex = if (_isShuffle.value) {
-                queue.indices.random()
-            } else {
-                (currentIndex + 1) % queue.size
-            }
-            playSong(queue[nextIndex], queue)
+        if (queue.isEmpty()) return
+        if (queue.size == 1) {
+            playSong(queue.first(), queue)
+            return
         }
+        val currentIndex = queue.indexOfFirst { it.id == current.id }
+        val nextIndex = if (_isShuffle.value) {
+            val otherIndices = queue.indices.filter { it != currentIndex }
+            if (otherIndices.isNotEmpty()) otherIndices.random() else 0
+        } else {
+            if (currentIndex != -1) (currentIndex + 1) % queue.size else 0
+        }
+        playSong(queue[nextIndex], queue)
     }
 
     fun previousSong() {
         val current = _currentSong.value ?: return
         val queue = _playbackQueue.value.ifEmpty { _songs.value }
-        val currentIndex = queue.indexOfFirst { it.id == current.id }
-        if (currentIndex != -1 && queue.isNotEmpty()) {
-            val prevIndex = if (currentIndex - 1 >= 0) currentIndex - 1 else queue.size - 1
-            playSong(queue[prevIndex], queue)
+        if (queue.isEmpty()) return
+        if (queue.size == 1) {
+            playSong(queue.first(), queue)
+            return
         }
+        val currentIndex = queue.indexOfFirst { it.id == current.id }
+        val prevIndex = if (currentIndex > 0) currentIndex - 1 else queue.size - 1
+        playSong(queue[prevIndex], queue)
     }
 
     fun seekTo(positionFraction: Float) {
@@ -308,7 +323,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 durationSeconds = durationSec,
                 genre = "Local",
                 coverRes = R.drawable.echora_placeholder,
-                isFavorite = false, // default false as requested
+                isFavorite = false,
                 localUri = uri.toString()
             )
 
@@ -389,7 +404,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             storageManager.savePlaylistSongs(newPlaylist.id, songIds)
         }
         closeCreatePlaylist()
-        selectPlaylist(newPlaylist) // open the newly created playlist as requested in flow
+        selectPlaylist(newPlaylist)
     }
 
     fun editPlaylist(playlistId: String, newName: String, newCoverRes: Int) {
@@ -417,6 +432,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             updated.remove(playlistId)
             updated
         }
+        storageManager.removePlaylistSongs(playlistId)
         if (_selectedPlaylist.value?.id == playlistId) {
             _selectedPlaylist.value = null
             _librarySubScreen.value = "main"
@@ -533,6 +549,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         storageManager.saveUsername(newName.trim())
     }
 
+    fun setThemeMode(mode: String) {
+        _themeMode.value = mode
+        storageManager.saveThemeMode(mode)
+    }
+
     fun getSongsForPlaylist(playlistId: String): List<Song> {
         val songIds = _playlistSongMap.value[playlistId] ?: emptyList()
         val allSongs = _songs.value
@@ -566,20 +587,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun shuffleQueue() {
-        _isShuffle.value = !_isShuffle.value
-        if (_isShuffle.value) {
-            val current = _currentSong.value
-            val queue = _playbackQueue.value
-            if (queue.isNotEmpty()) {
-                val shuffled = queue.shuffled()
-                if (current != null) {
-                    val reordered = listOf(current) + shuffled.filter { it.id != current.id }
-                    _playbackQueue.value = reordered
-                } else {
-                    _playbackQueue.value = shuffled
-                }
-            }
-        }
+        val nextShuffle = !_isShuffle.value
+        _isShuffle.value = nextShuffle
+        exoPlayer.shuffleModeEnabled = nextShuffle
     }
 
     fun setSearchQuery(query: String) {
@@ -600,11 +610,17 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleRepeat() {
-        _isRepeat.value = !_isRepeat.value
+        val nextRepeat = !_isRepeat.value
+        _isRepeat.value = nextRepeat
+        exoPlayer.repeatMode = if (nextRepeat) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
     }
 
     fun toggleDarkMode() {
-        _isDarkMode.value = !_isDarkMode.value
+        val nextMode = when (_themeMode.value) {
+            "light" -> "dark"
+            else -> "light"
+        }
+        setThemeMode(nextMode)
     }
 
     fun clearError() {

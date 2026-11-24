@@ -31,8 +31,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            val isDarkMode by viewModel.isDarkMode.collectAsState()
-            EchoraTheme(darkTheme = isDarkMode) {
+            val themeMode by viewModel.themeMode.collectAsState()
+            EchoraTheme(themeMode = themeMode) {
                 val currentScreen by viewModel.currentScreen.collectAsState()
                 val librarySubScreen by viewModel.librarySubScreen.collectAsState()
                 val songs by viewModel.songs.collectAsState()
@@ -248,8 +248,8 @@ class MainActivity : ComponentActivity() {
                                     songCount = songs.size,
                                     favoriteCount = likedSongs.size,
                                     playlistCount = playlists.size,
-                                    isDarkMode = isDarkMode,
-                                    onToggleDarkMode = { viewModel.toggleDarkMode() },
+                                    themeMode = themeMode,
+                                    onSetThemeMode = { viewModel.setThemeMode(it) },
                                     onUpdateUsername = { viewModel.updateUsername(it) }
                                 )
                             }

@@ -1,7 +1,5 @@
 package com.example.echora.ui.theme
 
-import android.app.Activity
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -10,25 +8,45 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
 private val EchoraDarkColorScheme = darkColorScheme(
-    primary = EchoraPrimary,
+    primary = EchoraDarkPrimary,
     onPrimary = Color.White,
-    secondary = EchoraSecondary,
+    secondary = EchoraDarkSecondary,
     onSecondary = Color.Black,
-    background = EchoraBackground,
-    onBackground = EchoraTextPrimary,
-    surface = EchoraSurface,
-    onSurface = EchoraTextPrimary,
-    surfaceVariant = EchoraSurfaceVariant,
-    onSurfaceVariant = EchoraTextSecondary,
-    outline = EchoraDivider
+    background = EchoraDarkBackground,
+    onBackground = EchoraDarkTextPrimary,
+    surface = EchoraDarkSurface,
+    onSurface = EchoraDarkTextPrimary,
+    surfaceVariant = EchoraDarkCard,
+    onSurfaceVariant = EchoraDarkTextSecondary,
+    outline = EchoraDarkDivider
+)
+
+private val EchoraLightColorScheme = lightColorScheme(
+    primary = EchoraLightPrimary,
+    onPrimary = Color.White,
+    secondary = EchoraLightSecondary,
+    onSecondary = Color.White,
+    background = EchoraLightBackground,
+    onBackground = EchoraLightTextPrimary,
+    surface = EchoraLightSurface,
+    onSurface = EchoraLightTextPrimary,
+    surfaceVariant = EchoraLightCard,
+    onSurfaceVariant = EchoraLightTextSecondary,
+    outline = EchoraLightDivider
 )
 
 @Composable
 fun EchoraTheme(
-    darkTheme: Boolean = true, // Force dark theme as requested for Echora concept
+    themeMode: String = "system", // "system", "light", "dark"
     content: @Composable () -> Unit
 ) {
-    val colorScheme = EchoraDarkColorScheme
+    val darkTheme = when (themeMode) {
+        "light" -> false
+        "dark" -> true
+        else -> isSystemInDarkTheme()
+    }
+
+    val colorScheme = if (darkTheme) EchoraDarkColorScheme else EchoraLightColorScheme
 
     MaterialTheme(
         colorScheme = colorScheme,
